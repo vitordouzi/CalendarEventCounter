@@ -12,7 +12,7 @@
             color: #333;
         }
         .container {
-            max-width: 600px;
+            max-width: 800px; /* Aumentando a largura para acomodar melhor */
             margin: 0 auto;
             background: #fff;
             padding: 20px;
@@ -29,7 +29,7 @@
             margin-top: 10px;
             font-weight: bold;
         }
-        input[type="file"], select, button {
+        input[type="file"], input[type="date"], button {
             width: 100%;
             padding: 10px;
             margin-top: 5px;
@@ -37,6 +37,13 @@
             border: 1px solid #ccc;
             border-radius: 4px;
             box-sizing: border-box;
+        }
+        .date-selection {
+            display: flex;
+            gap: 20px;
+        }
+        .date-selection > div {
+            flex: 1;
         }
         button {
             background-color: #007bff;
@@ -58,13 +65,38 @@
             margin-top: 0;
             color: #0056b3;
         }
-        .event-result {
-            margin-bottom: 10px;
-            padding: 8px;
-            border-bottom: 1px dashed #ccc;
+        .event-group {
+            margin-bottom: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #fff;
         }
-        .event-result:last-child {
-            border-bottom: none;
+        .event-group h3 {
+            color: #333;
+            margin-top: 0;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .event-total-time {
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #0056b3;
+        }
+        .occurrence {
+            margin-left: 15px;
+            padding: 5px 0;
+            border-left: 3px solid #ccc;
+            padding-left: 10px;
+            font-size: 0.9em;
+        }
+        .occurrence-duration {
+            font-weight: bold;
+            color: #28a745;
         }
     </style>
 </head>
@@ -72,29 +104,21 @@
     <div class="container">
         <h1>Contador de Horas de Eventos ICS</h1>
         
-        <p>Importe um arquivo <code>.ics</code> do Google Calendar, escolha o mês e ano para calcular o total de horas de eventos com o mesmo nome.</p>
+        <p>Importe um arquivo <code>.ics</code> do Google Calendar, escolha o intervalo de datas para calcular a duração total de eventos com o mesmo nome.</p>
 
         <label for="icsFile">Arquivo ICS:</label>
         <input type="file" id="icsFile" accept=".ics">
 
-        <label for="month">Mês:</label>
-        <select id="month">
-            <option value="1">Janeiro</option>
-            <option value="2">Fevereiro</option>
-            <option value="3">Março</option>
-            <option value="4">Abril</option>
-            <option value="5">Maio</option>
-            <option value="6">Junho</option>
-            <option value="7">Julho</option>
-            <option value="8">Agosto</option>
-            <option value="9">Setembro</option>
-            <option value="10">Outubro</option>
-            <option value="11">Novembro</option>
-            <option value="12">Dezembro</option>
-        </select>
-
-        <label for="year">Ano:</label>
-        <select id="year"></select>
+        <div class="date-selection">
+            <div>
+                <label for="startDate">Data de Início:</label>
+                <input type="date" id="startDate">
+            </div>
+            <div>
+                <label for="endDate">Data de Fim:</label>
+                <input type="date" id="endDate">
+            </div>
+        </div>
 
         <button onclick="processICS()">Calcular Horas</button>
 
@@ -105,67 +129,91 @@
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', (event) => {
-            const yearSelect = document.getElementById('year');
-            const currentYear = new Date().getFullYear();
+        // Função auxiliar para formatar a duração em horas e minutos
+        function formatDuration(ms) {
+            const totalSeconds = Math.floor(ms / 1000);
+            const totalMinutes = Math.floor(totalSeconds / 60);
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
             
-            // Preenche o seletor de ano
-            for (let i = currentYear - 5; i <= currentYear + 5; i++) {
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = i;
-                if (i === currentYear) {
-                    option.selected = true;
-                }
-                yearSelect.appendChild(option);
+            let formatted = '';
+            if (hours > 0) {
+                formatted += `${hours}h`;
             }
-
-            // Define o mês atual como padrão
-            document.getElementById('month').value = new Date().getMonth() + 1;
-        });
-
-        // Função auxiliar para converter o formato de data ICS (YYYYMMDDTHHMMSSZ) para um objeto Date
-        function parseICSDate(icsDateString) {
-            // Remove o 'Z' (Zulu/UTC) para tratar a data como UTC e evitar problemas de fuso horário local
-            // O Google Calendar geralmente usa DTSTART;TZID=... ou DTSTART:YYYYMMDDTHHMMSS
-            // Para simplificar, vamos focar no formato YYYYMMDDTHHMMSS e assumir UTC se 'Z' estiver presente
+            if (minutes > 0 || hours === 0) {
+                formatted += `${minutes}m`;
+            }
             
+            return formatted || '0m';
+        }
+
+        // Função auxiliar para converter o formato de data ICS (YYYYMMDDTHHMMSSZ ou YYYYMMDDTHHMMSS) para um objeto Date
+        function parseICSDate(icsDateString) {
+            // Remove 'Z' para tratar como UTC se presente, ou tenta tratar como local
+            const hasZ = icsDateString.endsWith('Z');
             let dateString = icsDateString.replace('Z', '');
             
             const year = dateString.substring(0, 4);
             const month = dateString.substring(4, 6);
             const day = dateString.substring(6, 8);
-            const hour = dateString.substring(9, 11);
-            const minute = dateString.substring(11, 13);
-            const second = dateString.substring(13, 15);
-
-            // Cria a string no formato ISO 8601 para o construtor Date
-            // Se o 'Z' foi removido, a data será interpretada como hora local, o que é mais simples para o usuário
-            // Se o 'Z' estiver presente, é UTC.
-            // Para ser mais preciso com o Google Calendar, precisaríamos de uma biblioteca de ICS, mas vamos simplificar.
-            const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
             
-            // Se a string original tinha 'Z', tratamos como UTC
-            if (icsDateString.endsWith('Z')) {
-                return new Date(isoString + 'Z');
+            // Verifica se há componente de tempo (T)
+            if (dateString.includes('T')) {
+                const hour = dateString.substring(9, 11);
+                const minute = dateString.substring(11, 13);
+                const second = dateString.substring(13, 15);
+                
+                const isoString = `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+                
+                // Se tinha 'Z', trata como UTC
+                if (hasZ) {
+                    return new Date(isoString + 'Z');
+                }
+                
+                // Senão, tenta tratar como data local (pode ser problemático com fuso horário, mas é a simplificação sem biblioteca)
+                return new Date(isoString);
             }
             
-            // Caso contrário, tratamos como data local (o que pode ser um problema se o fuso horário for especificado no ICS)
-            // Para a maioria dos casos de uso simples do Google Calendar, a data sem 'Z' é local ou tem um TZID.
-            // Vamos usar o construtor Date simples, que tentará interpretar com o fuso horário local.
-            return new Date(isoString);
+            // Se não tem componente de tempo, é um evento de dia inteiro.
+            // Cria um objeto Date para o início do dia.
+            return new Date(year, month - 1, day); // month - 1 porque é 0-indexado
         }
 
         function processICS() {
             const fileInput = document.getElementById('icsFile');
-            const month = parseInt(document.getElementById('month').value);
-            const year = parseInt(document.getElementById('year').value);
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
             const resultsDiv = document.getElementById('results');
             
             resultsDiv.innerHTML = '<h2>Resultados</h2><p>Processando...</p>';
 
             if (fileInput.files.length === 0) {
                 resultsDiv.innerHTML = '<h2>Resultados</h2><p style="color: red;">Por favor, selecione um arquivo ICS.</p>';
+                return;
+            }
+            
+            if (!startDateInput.value || !endDateInput.value) {
+                resultsDiv.innerHTML = '<h2>Resultados</h2><p style="color: red;">Por favor, selecione a Data de Início e a Data de Fim.</p>';
+                return;
+            }
+            
+            // Converte as datas de input para objetos Date (início do dia)
+            const startDate = new Date(startDateInput.value);
+            const endDate = new Date(endDateInput.value);
+            
+            // Ajuste para garantir que a hora seja 00:00:00 do dia de início
+            startDate.setHours(0, 0, 0, 0);
+            
+            // A data de fim deve incluir o dia inteiro, então ajustamos para 23:59:59.999 do dia selecionado
+            endDate.setHours(23, 59, 59, 999);
+            
+            // Para o filtro de intersecção, o final do intervalo é o início do dia seguinte.
+            const endRange = new Date(endDateInput.value);
+            endRange.setDate(endRange.getDate() + 1);
+            endRange.setHours(0, 0, 0, 0);
+
+            if (startDate.getTime() >= endRange.getTime()) {
+                resultsDiv.innerHTML = '<h2>Resultados</h2><p style="color: red;">A Data de Início deve ser anterior ou igual à Data de Fim.</p>';
                 return;
             }
 
@@ -179,6 +227,7 @@
                 let currentEvent = {};
                 const events = [];
 
+                // 1. Parsing Básico do ICS
                 for (const line of lines) {
                     const trimmedLine = line.trim();
                     
@@ -193,7 +242,6 @@
                     } else if (inEvent) {
                         // Tratar linhas de continuação (folding)
                         if (trimmedLine.startsWith(' ')) {
-                            // Linha de continuação, anexa ao valor da propriedade anterior
                             const lastKey = Object.keys(currentEvent).pop();
                             if (lastKey) {
                                 currentEvent[lastKey] += trimmedLine.substring(1);
@@ -205,69 +253,131 @@
                         const value = valueParts.join(':');
                         
                         if (property) {
-                            const [name, ...params] = property.split(';');
+                            const [name] = property.split(';');
                             
-                            // Simplificação: Focamos em DTSTART, DTEND e SUMMARY
                             if (name === 'DTSTART' || name === 'DTEND' || name === 'SUMMARY') {
-                                // Para DTSTART e DTEND, o valor pode conter parâmetros como TZID
-                                // Ex: DTSTART;TZID=America/Sao_Paulo:20251029T100000
-                                // Vamos extrair a data/hora bruta
-                                
+                                // Extrai apenas a data/hora bruta do valor, ignorando parâmetros como TZID
                                 let finalValue = value;
-                                if (name === 'DTSTART' || name === 'DTEND') {
-                                    // Se houver parâmetros, o valor é o último segmento
-                                    if (property.includes(';')) {
-                                        const parts = property.split(':');
-                                        finalValue = parts[parts.length - 1];
-                                    } else {
-                                        finalValue = value;
-                                    }
+                                if (property.includes(';')) {
+                                    const parts = property.split(':');
+                                    finalValue = parts[parts.length - 1];
                                 }
                                 
-                                currentEvent[name] = finalValue;
+                                currentEvent[name] = finalValue.trim();
                             }
                         }
                     }
                 }
 
-                // Filtrar e calcular o total de horas
-                const filteredEvents = events.filter(event => {
-                    const startDate = parseICSDate(event.DTSTART);
-                    return startDate.getFullYear() === year && startDate.getMonth() === (month - 1); // getMonth() é 0-indexado
-                });
+                // 2. Filtrar e calcular o total de horas por evento
+                const eventData = {}; // { 'Nome do Evento': { totalMs: 0, occurrences: [] } }
 
-                const eventHours = {}; // { 'Nome do Evento': totalEmMilissegundos }
+                const startRangeMs = startDate.getTime();
+                const endRangeMs = endRange.getTime(); // Início do dia seguinte
 
-                filteredEvents.forEach(event => {
-                    const startDate = parseICSDate(event.DTSTART);
-                    const endDate = parseICSDate(event.DTEND);
-                    const durationMs = endDate.getTime() - startDate.getTime();
+                events.forEach(event => {
+                    const eventStart = parseICSDate(event.DTSTART);
+                    const eventEnd = parseICSDate(event.DTEND);
                     const summary = event.SUMMARY;
+                    
+                    const eventStartMs = eventStart.getTime();
+                    const eventEndMs = eventEnd.getTime();
+                    
+                    // Condição de filtro: O evento deve ter alguma sobreposição com o intervalo [startDate, endRange)
+                    // (eventStart < endRange) && (eventEnd > startDate)
+                    if (eventStartMs < endRangeMs && eventEndMs > startRangeMs) {
+                        
+                        // O tempo a ser contado é a intersecção entre o evento e o intervalo
+                        const countStart = new Date(Math.max(eventStartMs, startRangeMs));
+                        const countEnd = new Date(Math.min(eventEndMs, endRangeMs));
+                        const countedDurationMs = countEnd.getTime() - countStart.getTime();
+                        
+                        // A duração total do evento (para exibição na ocorrência)
+                        let eventDurationMs = eventEndMs - eventStartMs;
+                        
+                        // Ajuste para eventos de dia inteiro (DTSTART:YYYYMMDD, DTEND:YYYYMMDD+1)
+                        if (!event.DTSTART.includes('T') && eventDurationMs === 24 * 60 * 60 * 1000) {
+                            // Se for um evento de dia inteiro, a duração é 24h
+                            eventDurationMs = 24 * 60 * 60 * 1000;
+                        } else if (!event.DTSTART.includes('T') && eventDurationMs === 0) {
+                            // Caso DTSTART e DTEND sejam o mesmo dia para um evento de dia inteiro (alguns calendários fazem isso)
+                            eventDurationMs = 24 * 60 * 60 * 1000;
+                        }
 
-                    if (eventHours[summary]) {
-                        eventHours[summary] += durationMs;
-                    } else {
-                        eventHours[summary] = durationMs;
+                        if (countedDurationMs > 0) {
+                            if (!eventData[summary]) {
+                                eventData[summary] = { totalMs: 0, occurrences: [] };
+                            }
+                            
+                            // *** CORREÇÃO: Acumular a duração contada (intersecção) ***
+                            eventData[summary].totalMs += countedDurationMs;
+                            
+                            // Adiciona a ocorrência detalhada
+                            eventData[summary].occurrences.push({
+                                start: eventStart,
+                                end: eventEnd,
+                                durationMs: eventDurationMs, // Duração total do evento para a linha de ocorrência
+                                countedDurationMs: countedDurationMs // Duração dentro do intervalo (para debug/referência)
+                            });
+                        }
                     }
                 });
 
-                // Apresentar os resultados
-                let resultsHTML = '<h2>Resultados para ' + getMonthName(month) + '/' + year + '</h2>';
+                // 3. Apresentar os resultados
+                const formattedStartDate = startDate.toLocaleDateString('pt-BR');
+                const formattedEndDate = endDate.toLocaleDateString('pt-BR');
+                let resultsHTML = `<h2>Resultados para o período de ${formattedStartDate} a ${formattedEndDate}</h2>`;
                 
-                if (Object.keys(eventHours).length === 0) {
-                    resultsHTML += '<p>Nenhum evento encontrado para o mês e ano selecionados.</p>';
+                const eventSummaries = Object.keys(eventData).sort();
+
+                if (eventSummaries.length === 0) {
+                    resultsHTML += '<p>Nenhum evento encontrado no período selecionado.</p>';
                 } else {
-                    for (const [summary, totalMs] of Object.entries(eventHours)) {
-                        const totalHours = totalMs / (1000 * 60 * 60);
-                        const hours = Math.floor(totalHours);
-                        const minutes = Math.round((totalHours - hours) * 60);
+                    eventSummaries.forEach(summary => {
+                        const data = eventData[summary];
+                        
+                        // O total de horas agora é a soma correta das intersecções
+                        const totalHoursDecimal = data.totalMs / (1000 * 60 * 60);
+                        const totalFormatted = formatDuration(data.totalMs);
                         
                         resultsHTML += `
-                            <div class="event-result">
-                                <strong>${summary}</strong>: ${hours} horas e ${minutes} minutos (${totalHours.toFixed(2)} horas)
-                            </div>
+                            <div class="event-group">
+                                <h3>
+                                    ${summary} 
+                                    <span class="event-total-time">(${totalFormatted} - ${totalHoursDecimal.toFixed(2)}h)</span>
+                                </h3>
                         `;
-                    }
+                        
+                        // Ordena as ocorrências por data de início
+                        data.occurrences.sort((a, b) => a.start.getTime() - b.start.getTime());
+
+                        data.occurrences.forEach(occurrence => {
+                            const dayOfWeek = occurrence.start.toLocaleDateString('pt-BR', { weekday: 'long' });
+                            const durationFormatted = formatDuration(occurrence.durationMs);
+                            
+                            // Formata a data e hora
+                            let dateTimeFormatted;
+                            if (!occurrence.start.toLocaleTimeString('pt-BR').includes(':')) {
+                                // Se for um evento de dia inteiro (sem componente de tempo)
+                                dateTimeFormatted = occurrence.start.toLocaleDateString('pt-BR');
+                            } else {
+                                // Evento com hora
+                                const timeFormatted = occurrence.start.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+                                const dateFormatted = occurrence.start.toLocaleDateString('pt-BR');
+                                dateTimeFormatted = `${timeFormatted} ${dateFormatted}`;
+                            }
+                            
+                            resultsHTML += `
+                                <div class="occurrence">
+                                    ${dayOfWeek.charAt(0).toUpperCase() + dayOfWeek.slice(1)}: 
+                                    <span class="occurrence-duration">${durationFormatted}</span>, 
+                                    ${dateTimeFormatted}
+                                </div>
+                            `;
+                        });
+                        
+                        resultsHTML += '</div>';
+                    });
                 }
 
                 resultsDiv.innerHTML = resultsHTML;
@@ -280,11 +390,6 @@
             reader.readAsText(file);
         }
         
-        function getMonthName(monthNumber) {
-            const date = new Date();
-            date.setMonth(monthNumber - 1);
-            return date.toLocaleString('pt-BR', { month: 'long' });
-        }
     </script>
 </body>
 </html>
